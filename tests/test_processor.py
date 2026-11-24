@@ -75,6 +75,32 @@ def test_non_text_runs_are_untouched(corrector):
     assert paragraph.runs[1].text == "second part"
 
 
+@pytest.mark.parametrize(
+    "xml",
+    [
+        '<w:fldSimple w:instr="PAGE"><w:r><w:t>1</w:t></w:r></w:fldSimple>',
+        '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+        "<m:r><m:t>x</m:t></m:r></m:oMath>",
+        "<w:sdt><w:sdtContent><w:r><w:t>John</w:t></w:r></w:sdtContent></w:sdt>",
+    ],
+)
+def test_unsupported_elements_split_segments(corrector, xml):
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+
+    document = docx.Document()
+    paragraph = document.add_paragraph("Let ")
+    element = parse_xml(xml.replace(">", f" {nsdecls('w')}>", 1))
+    paragraph._p.append(element)
+    paragraph.add_run(" signed  teh value.")
+
+    corrector.correct_document(document)
+
+    assert paragraph.runs[0].text == "Let "
+    assert paragraph.runs[-1].text == " signed the value."
+    assert paragraph._p[-2].tag == element.tag
+
+
 def test_blank_paragraphs_are_collapsed(corrector):
     document = docx.Document()
     document.add_paragraph("One paragraph here.")
@@ -114,3 +140,22 @@ def test_cli_dry_run_and_directory(tmp_path):
 
     assert main([str(tmp_path), "--output-dir", str(tmp_path / "out"), "--quiet"]) == 0
     assert docx.Document(tmp_path / "out" / "a_corrected.docx").paragraphs[0].text == "the end"
+
+
+def test_cli_output_dir_keeps_folder_structure(tmp_path):
+    for sub in ("a", "b"):
+        (tmp_path / "in" / sub).mkdir(parents=True)
+        document = docx.Document()
+        document.add_paragraph(f"teh {sub}")
+        document.save(tmp_path / "in" / sub / "report.docx")
+
+    assert main([str(tmp_path / "in"), "--output-dir", str(tmp_path / "out"), "-q"]) == 0
+    assert docx.Document(tmp_path / "out" / "a" / "report_corrected.docx").paragraphs[0].text == "the a"
+    assert docx.Document(tmp_path / "out" / "b" / "report_corrected.docx").paragraphs[0].text == "the b"
+
+
+def test_cli_refuses_to_overwrite_input(tmp_path):
+    source = tmp_path / "doc.docx"
+    docx.Document().save(source)
+    with pytest.raises(SystemExit):
+        main([str(source), "--suffix", ""])

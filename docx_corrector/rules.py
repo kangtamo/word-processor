@@ -194,13 +194,24 @@ _ARTICLE_RE = re.compile(r"\b(a|an|A|An)(\s+)([A-Za-z][\w'’-]*)")
 _SENTENCE_BOUNDARY_RE = re.compile(r"(?:^|[.!?][\"'”’)\]]*\s+)$")
 
 
-def _needs_an(word):
+# Words that cannot follow an article; "a" is then a label ("option a or b").
+_NOT_AFTER_ARTICLE = {
+    "a", "an", "and", "are", "as", "at", "but", "if", "in", "into", "is",
+    "it", "its", "nor", "of", "on", "onto", "or", "the", "to", "upon", "was",
+    "were",
+}
+
+
+def _wanted_article(word):
+    """Return "a", "an" or ``None`` when the right article is uncertain."""
     lower = word.lower()
     if lower.startswith(_VOWEL_SOUND_PREFIXES):
-        return True
+        return "an"
     if lower == "one" or lower.startswith(_CONSONANT_SOUND_PREFIXES):
-        return False
-    return lower[0] in "aeiou"
+        return "a"
+    if lower[0] == "u":
+        return None  # "an umbrella" but "a Ukrainian": too ambiguous
+    return "an" if lower[0] in "aeio" else "a"
 
 
 def _fix_article(match):
@@ -212,10 +223,10 @@ def _fix_article(match):
             return None
     if len(word) > 1 and (word.isupper() or word[1] == "-"):
         return None  # acronyms and letter compounds ("an FBI", "x-ray")
-    if any(ch.isdigit() for ch in word):
+    if any(ch.isdigit() for ch in word) or word.lower() in _NOT_AFTER_ARTICLE:
         return None
-    wanted = "an" if _needs_an(word) else "a"
-    if article.lower() == wanted:
+    wanted = _wanted_article(word)
+    if wanted is None or article.lower() == wanted:
         return None
     return _match_case(article, wanted) + space + word
 

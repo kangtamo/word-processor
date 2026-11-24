@@ -70,15 +70,17 @@ def _build_parser():
 
 
 def _collect_inputs(paths, suffix):
+    """Return ``(file, path relative to the given folder)`` pairs."""
     files = []
     for path in paths:
         if path.is_dir():
             files.extend(
-                p for p in sorted(path.rglob("*.docx"))
-                if not p.name.startswith("~$") and not p.stem.endswith(suffix)
+                (p, p.relative_to(path)) for p in sorted(path.rglob("*.docx"))
+                if not p.name.startswith("~$")
+                and not (suffix and p.stem.endswith(suffix))
             )
         else:
-            files.append(path)
+            files.append((path, Path(path.name)))
     return files
 
 
@@ -92,14 +94,14 @@ def _read_words(paths):
     return words
 
 
-def _output_path(source, args):
+def _output_path(source, relative, args):
     if args.in_place:
         return source
     if args.output:
         return args.output
     name = f"{source.stem}{args.suffix}{source.suffix}"
     if args.output_dir:
-        return args.output_dir / name
+        return args.output_dir / relative.parent / name
     return source.with_name(name)
 
 
@@ -112,15 +114,23 @@ def main(argv=None):
         parser.error("no DOCX files found")
     if args.output and len(files) != 1:
         parser.error("--output can only be used with a single input file")
-    if not args.in_place and not args.dry_run and args.suffix == "" and not (
-        args.output or args.output_dir
-    ):
-        parser.error("an empty --suffix would overwrite the inputs; use --in-place")
-    for path in files:
+    jobs = []
+    destinations = {}
+    for path, relative in files:
         if not path.is_file():
             parser.error(f"file not found: {path}")
         if path.suffix.lower() != ".docx":
             parser.error(f"not a .docx file: {path}")
+        destination = _output_path(path, relative, args)
+        key = destination.resolve()
+        if not args.in_place and key == path.resolve():
+            parser.error(f"output would overwrite the input {path}; use --in-place")
+        if key in destinations:
+            parser.error(
+                f"{path} and {destinations[key]} would both be written to {destination}"
+            )
+        destinations[key] = path
+        jobs.append((path, destination))
 
     try:
         extra_words = _read_words(args.ignore_words)
@@ -138,14 +148,12 @@ def main(argv=None):
         max_edit_distance=args.max_edit_distance,
     )
 
-    if args.output_dir and not args.dry_run:
-        args.output_dir.mkdir(parents=True, exist_ok=True)
-
     report_lines = []
     exit_code = 0
-    for source in files:
-        destination = _output_path(source, args)
+    for source, destination in jobs:
         try:
+            if not args.dry_run:
+                destination.parent.mkdir(parents=True, exist_ok=True)
             changes = corrector.correct_file(source, destination, dry_run=args.dry_run)
         except Exception as exc:  # report and continue with the next file
             print(f"error: {source}: {exc}", file=sys.stderr)

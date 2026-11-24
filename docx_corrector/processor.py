@@ -15,10 +15,16 @@ from .spelling import SpellingCorrector
 _TEXT_TAGS = {qn("w:rPr"), qn("w:t"), qn("w:tab"), qn("w:cr"), qn("w:lastRenderedPageBreak")}
 _BR_TAG = qn("w:br")
 _BR_TYPE = qn("w:type")
-_RUN_XPATH = (
-    "./w:r | ./w:hyperlink/w:r | ./w:smartTag/w:r | ./w:ins/w:r"
-    " | ./w:customXml/w:r"
-)
+_RUN_TAG = qn("w:r")
+# Containers whose runs are visible, ordinary document text.
+_WRAPPER_TAGS = {qn("w:hyperlink"), qn("w:smartTag"), qn("w:ins"), qn("w:customXml")}
+# Invisible markers that neither carry text nor interrupt it.
+_MARKER_TAGS = {
+    qn("w:pPr"), qn("w:proofErr"), qn("w:bookmarkStart"), qn("w:bookmarkEnd"),
+    qn("w:commentRangeStart"), qn("w:commentRangeEnd"), qn("w:permStart"),
+    qn("w:permEnd"),
+}
+_LOCKED = object()
 _MONOSPACE_FONTS = {
     "consolas", "courier", "courier new", "lucida console", "menlo", "monaco",
     "source code pro", "cascadia code", "cascadia mono", "fira code",
@@ -95,14 +101,27 @@ def _correct_segment(runs, corrector, at_start, at_end):
     return corrections
 
 
+def _iter_paragraph_items(parent):
+    """Yield editable ``w:r`` elements in order, or ``_LOCKED`` for content
+    that must not be edited (images, fields, equations, content controls,
+    deleted text, ...)."""
+    for child in parent:
+        if child.tag == _RUN_TAG:
+            yield child if _is_editable_run(child) else _LOCKED
+        elif child.tag in _WRAPPER_TAGS:
+            yield from _iter_paragraph_items(child)
+        elif child.tag not in _MARKER_TAGS:
+            yield _LOCKED
+
+
 def correct_paragraph(p, corrector):
     """Correct a ``w:p`` element in place and return the corrections."""
     segments = []  # (runs, at_start, at_end)
     current = []
     locked_before = False
-    for r in p.xpath(_RUN_XPATH):
-        if _is_editable_run(r):
-            current.append(Run(r, None))
+    for item in _iter_paragraph_items(p):
+        if item is not _LOCKED:
+            current.append(Run(item, None))
             continue
         if current:
             segments.append([current, not locked_before, False])
