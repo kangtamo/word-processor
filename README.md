@@ -28,7 +28,8 @@ pip install -r requirements.txt
 # Writes report_corrected.docx next to the input
 python correct_docx.py report.docx
 
-# Several files or whole folders, written to another directory
+# Several files or whole folders (searched recursively), written to another
+# directory that mirrors the input folder structure
 python correct_docx.py docs/ notes.docx --output-dir corrected/
 
 # Choose the output file, or overwrite the input
@@ -88,10 +89,12 @@ changes = DocxCorrector().correct_file("in.docx", "out.docx")
 ## What is left untouched
 
 To avoid damaging documents, the corrector does not modify URLs, e-mail
-addresses, file names and paths, numbers, acronyms, mixed-case words
+addresses, file names and paths, numbers, acronyms, the article before
+words starting with `u` (`a Ukrainian` vs `an umbrella`), mixed-case words
 (`iPhone`), proper nouns (capitalised words), contractions, runs set in a
 monospace font (code), or runs containing images, fields, symbols and page
-breaks. Body text, tables (including nested tables), text boxes, headers and
+breaks; text separated by fields, equations or content controls is
+corrected separately on each side. Body text, tables (including nested tables), text boxes, headers and
 footers are processed; footnotes, endnotes and comments are not.
 
 Rule-based correction cannot understand meaning, so review the change report
